@@ -1,0 +1,138 @@
+import { getAllAccBan, unBanAcc } from '@/service/admin/accountManager'
+import React, { useEffect, useState } from 'react'
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '../ui/breadcrumb'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table'
+import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/alert-dialog'
+import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from '../ui/pagination'
+import { Ban, KeyRound, SlashIcon, Unlock } from 'lucide-react'
+import Link from "next/link"
+import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
+import BreadcrumbAdmin from './Breadcrumb'
+
+export default function AccBan() {
+    const [acc, setAcc] = useState([])
+
+    const handleUnBan = async (id: number) => {
+        try {
+            const res = await unBanAcc(id)
+            if (res) {
+                const fetchData = await getAllAccBan()
+                setAcc(fetchData.data);
+                toast.success('Mở khóa tài khoản thành công!')
+            } else {
+                toast.error("Lỗi mở khóa tài khoản")
+            }
+        } catch (err) {
+            console.log(err)
+            console.log("Lỗi mở khóa acc", err)
+        }
+
+    }
+
+    const fetchAcc = async () => {
+        try {
+            const res = await getAllAccBan()
+            if (res.success) {
+                setAcc(res.data)
+                console.log(res.data)
+            } else {
+                console.log("fetch all acc ban error!")
+            }
+        } catch (err) {
+            console.log(err)
+        }
+    }
+
+    useEffect(() => {
+        fetchAcc()
+    }, [])
+    return (
+        <div className="bg-background">
+            <BreadcrumbAdmin />
+
+            {/* <div className="grid w-full max-w-sm gap-6">
+                <InputGroup>
+                    <InputGroupInput placeholder="Tìm kiếm theo tên đăng nhập..." onChange={(e) => debouncedSearch(e.target.value)} />
+                    <InputGroupAddon >
+                        <Search />
+                    </InputGroupAddon>
+                </InputGroup>
+            </div> */}
+            {acc.length !== 0 ?
+                <Table>
+
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead className="w-[100px]">Id</TableHead>
+                            <TableHead className="w-[300px]">Usename / Email</TableHead>
+                            <TableHead className="w-[150px]">Vai trò</TableHead>
+                            <TableHead className="w-[250px]">Thời gian tạo</TableHead>
+                            <TableHead className="w-[120px]">Trạng thái</TableHead>
+                            <TableHead className="w-[100px] text-center">Hành Động</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {acc.map((a) => (
+                            <TableRow key={a.id}>
+                                <TableCell className="font-medium">{a.id}</TableCell>
+                                <TableCell> {a.username} <br />
+                                    <span className="italic">{a.email}</span>
+                                </TableCell>
+
+                                <TableCell>
+                                    {a.roleId === 1 ? 'Admin' : 'Khách'}
+                                </TableCell>
+
+                                <TableCell>{new Date(a.createdAt).toLocaleString()}</TableCell>
+                                <TableCell>
+                                    <span className={cn('px-2 py-1 rounded-full text-sm font-medium', a.isActive === true ? "bg-green-100 text-green-700" : " bg-red-100 text-red-700")}>
+
+                                        {a.isActive ? "Hoạt động" : "Không hoạt động"}
+                                    </span>
+                                </TableCell>
+
+                                <TableCell className="text-right">
+
+                                    <ToggleGroup type="multiple" variant="outline" size="sm">
+                                        <ToggleGroupItem
+                                            value="unlock"
+                                            aria-label="Toggle unlock"
+                                            className="data-[state=on]:bg-green-100 data-[state=on]:text-green-600"
+                                        >
+                                            <AlertDialog>
+                                                <AlertDialogTrigger asChild>
+                                                    <span><Unlock /></span>
+                                                </AlertDialogTrigger>
+
+                                                <AlertDialogContent>
+                                                    <AlertDialogHeader>
+                                                        <AlertDialogTitle>Bạn có chắc chắn muốn mở khóa tài khoản này?</AlertDialogTitle>
+                                                        <AlertDialogDescription>
+                                                            Vui lòng xác nhận để tiếp tục hành động!
+                                                        </AlertDialogDescription>
+                                                    </AlertDialogHeader>
+
+                                                    <AlertDialogFooter>
+                                                        <AlertDialogCancel>Hủy</AlertDialogCancel>
+                                                        <AlertDialogAction onClick={() => handleUnBan(a.id)}>Mở khóa</AlertDialogAction>
+                                                    </AlertDialogFooter>
+                                                </AlertDialogContent>
+                                            </AlertDialog>
+                                        </ToggleGroupItem>
+                                    </ToggleGroup>
+
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+
+                </Table>
+                : (<div className='text-center italic text-red-500 dark:text-red-300'>
+                    Không có tài khoản nào bị cấm
+                </div>)}
+
+        </div >
+    )
+}

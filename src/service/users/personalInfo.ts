@@ -1,0 +1,318 @@
+"use server"
+import { unauthorized } from "next/navigation";
+import { connectDB } from "@/config/db";
+import { getCookie } from "@/config/cookie";
+import { verifyToken } from "@/config/jwt";
+import bcrypt from 'bcryptjs';
+import { payloadType } from "@/types/config/tokenTypes";
+import { get } from "http";
+import { upload } from "../image/imageService";
+import { url } from "inspector";
+import { revalidatePath } from "next/cache";
+
+const pool = await connectDB();
+
+const verifyUser = async () => {
+    const token = await getCookie();
+    const verifyUser = verifyToken(token);
+    if (!verifyUser || verifyUser.role !== 'User') {
+        return false;
+    }
+    return true;
+};
+
+const getPersonalInfo = async () => {
+    if (!await verifyUser()) {
+        unauthorized();
+    }
+    try {
+        const token: string = await getCookie();
+        const decoded = verifyToken(token);
+        const id: string = decoded.id;
+        const role: string = decoded.role;
+        const result = await pool.request().input('id', id).query(
+            `
+           SELECT
+            a.email,
+            a.username,
+            p.fullName,
+            p.phoneNumber,
+            p.dob,
+            p.imgUrl,
+            p.coverImg,
+            p.bio,
+            p.location,
+            p.homeTown,
+            p.workAt,
+            p.education
+        FROM Account a
+        JOIN ${role}Profile p ON a.id = p.accountId
+        JOIN AccountRole ar ON a.id = ar.accountId
+        JOIN Role r ON ar.roleId = r.id
+        WHERE a.id = @id
+            `
+        )
+        if (result.recordset.length === 0) {
+            return {
+                success: false,
+                message: "User not found"
+            }
+        }
+        return {
+            success: true,
+            data: result.recordset[0]
+        }
+    }
+    catch (error) {
+        console.error('Error fetching personal info:', error);
+        return {
+            success: false,
+            message: "Error fetching personal info"
+        }
+    }
+}
+
+const getPersonalInfoById = async (id: number) => {
+    if (!await verifyUser()) {
+        unauthorized();
+    }
+    try {
+        const result = await pool.request().input('id', id).query(
+            `
+        SELECT
+            a.email,
+            a.username,
+            p.fullName,
+            p.phoneNumber,
+            p.dob,
+            p.imgUrl,
+            p.coverImg,
+            p.bio,
+            p.location,
+            p.homeTown,
+            p.workAt,
+            p.education
+        FROM Account a
+        JOIN UserProfile p ON a.id = p.accountId
+        JOIN AccountRole ar ON a.id = ar.accountId
+        JOIN Role r ON ar.roleId = r.id
+        WHERE a.id = @id
+            `
+        )
+        console.log(result);
+        if (result.recordset.length === 0) {
+            return {
+                success: false,
+                message: "User not found"
+            }
+        }
+        return {
+            success: true,
+            data: result.recordset[0]
+        }
+    }
+    catch (error) {
+        console.error('Error fetching personal info:', error);
+        return {
+            success: false,
+            message: "Error fetching personal info"
+        }
+    }
+}
+
+const updateInfo = async (data: { fullName: string, phoneNumber?: string, dob?: string }) => {
+    if (!await verifyUser()) {
+        unauthorized();
+    }
+    try {
+        const { fullName, phoneNumber, dob } = data;
+        const token = await getCookie();
+        const decoded = verifyToken(token);
+        const id = decoded.id;
+        const result = await pool.request().input('id', id).input('fullName', fullName).input('phoneNumber', phoneNumber).input('dob', dob).query(`
+            update UserProfile
+            set fullName = @fullName, phoneNumber = @phoneNumber, dob = @dob
+            where accountId = @id
+            `);
+        if (result.rowsAffected[0] === 0) {
+            return {
+                success: false,
+                message: "Không tìm thấy người dùng"
+            }
+        }
+        return {
+            success: true
+        }
+    }
+    catch (error) {
+        console.error('Error updating personal info:', error);
+        return {
+            success: false,
+            message: "Error updating personal info"
+        }
+    }
+}
+
+const updateBio = async (data: {
+    bio: string,
+    homeTown: string,
+    location: string,
+    workAt: string,
+    education: string
+}) => {
+    if (!await verifyUser()) {
+        unauthorized();
+    }
+    try {
+        const { bio, homeTown, location, workAt, education } = data;
+        const token = await getCookie();
+        const decoded = verifyToken(token);
+        const id = decoded.id;
+        const result = await pool.request()
+            .input('id', id)
+            .input('bio', bio)
+            .input('homeTown', homeTown)
+            .input('location', location)
+            .input('workAt', workAt)
+            .input('education', education)
+            .query(`
+                update UserProfile
+                set bio = @bio, homeTown = @homeTown, location = @location, workAt = @workAt, education = @education
+                where accountId = @id
+            `);
+        if (result.rowsAffected[0] === 0) {
+            return {
+                success: false,
+                message: "Không tìm thấy người dùng"
+            }
+        }
+        revalidatePath('/personal/info');
+        return {
+            success: true
+        }
+    }
+    catch (error) {
+        console.error('Error updating bio:', error);
+        return {
+            success: false,
+            message: "Lỗi cập nhật giới thiệu"
+        }
+    }
+}
+
+const changePassword = async (oldPassword: string, newPassword: string) => {
+    if (!await verifyUser()) {
+        unauthorized();
+    }
+    try {
+        const token: string = await getCookie();
+        const decoded = verifyToken(token);
+        const id: string = decoded.id;
+        const salt = await bcrypt.genSalt(10);
+        const newPassHash = await bcrypt.hash(newPassword, salt);
+        const checkOldPass = await pool.request().input('id', id).query(`select password from Account where id = @id`);
+        const isMatch = await bcrypt.compare(oldPassword, checkOldPass.recordset[0].password);
+        if (!isMatch) {
+            return {
+                success: false,
+                message: "Mật khẩu cũ không đúng"
+            }
+        }
+        const result = await pool.request().input('id', id).input('oldPassword', oldPassword).input('newPassword', newPassHash).query(`
+            update Account
+            set password = @newPassword
+            where id = @id
+            `);
+        if (result.rowsAffected[0] === 0) {
+            return {
+                success: false,
+                message: "Đã có lỗi xảy ra"
+            }
+        }
+        return {
+            success: true
+        }
+    }
+    catch (error) {
+        console.error('Error changing password:', error);
+        return {
+            success: false,
+            message: "Đã có lỗi xảy ra"
+        }
+    }
+}
+
+const updateAvatar = async (avatarUrl: string) => {
+    if (!await verifyUser()) {
+        unauthorized();
+    }
+    try {
+        const token: string = await getCookie();
+        const decoded = verifyToken(token);
+        const id: string = decoded.id;
+        const uploadResult = await upload(avatarUrl, `user_avatar_${id}.jpeg`);
+        if (uploadResult.success) {
+            const result = await pool.request().input('id', id).input('imgUrl', uploadResult.upload.url).query(`
+                    update UserProfile
+                    set imgUrl = @imgUrl
+                    where accountId = @id
+                `);
+            if (result.rowsAffected[0] === 0) {
+                return {
+                    success: false,
+                    message: "User not found"
+                }
+            }
+            return { success: true, url: uploadResult.upload.url };
+        }
+        return {
+            success: false,
+            message: "Lỗi tải ảnh lên"
+        }
+    }
+    catch (error) {
+        console.error('Error updating avatar:', error);
+        return {
+            success: false,
+            message: "Lỗi câp nhật ảnh đại diện"
+        }
+    }
+}
+
+const updateCoverImage = async (coverImageUrl: string) => {
+    if (!await verifyUser()) {
+        unauthorized();
+    }
+    try {
+        const token: string = await getCookie();
+        const decoded = verifyToken(token);
+        const id: string = decoded.id;
+        const uploadResult = await upload(coverImageUrl, `user_cover_${id}.jpeg`);
+        if (uploadResult.success) {
+            const result = await pool.request().input('id', id).input('coverImgUrl', uploadResult.upload.url).query(`
+                    update UserProfile
+                    set coverImg = @coverImgUrl
+                    where accountId = @id
+                `);
+            if (result.rowsAffected[0] === 0) {
+                return {
+                    success: false,
+                    message: "User not found"
+                }
+            }
+            return { success: true, url: uploadResult.upload.url };
+        }
+        return {
+            success: false,
+            message: "Lỗi tải ảnh lên"
+        }
+    }
+    catch (error) {
+        console.error('Error updating avatar:', error);
+        return {
+            success: false,
+            message: "Lỗi câp nhật ảnh đại diện"
+        }
+    }
+}
+export { getPersonalInfo, updateInfo, changePassword, verifyUser, updateAvatar, getPersonalInfoById, updateCoverImage, updateBio };
